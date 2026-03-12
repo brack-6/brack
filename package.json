@@ -1,0 +1,23 @@
+{
+  "name": "brackoracle",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@coinbase/x402": "^2.1.0",
+    "@x402/evm": "^2.6.0",
+    "@x402/fetch": "^2.6.0",
+    "better-sqlite3": "^12.6.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.1",
+    "viem": "^2.47.1",
+    "x402-express": "^1.1.0"
+  },
+  "type": "module"
+}

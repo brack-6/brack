@@ -1,0 +1,3 @@
+node_modules/
+oracle.db
+*.bak
