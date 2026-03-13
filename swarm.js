@@ -100,11 +100,12 @@ function sanitize(content, patterns) {
 export async function promptRiskCheck(content) {
   const matched = INJECTION_PATTERNS.filter(p => p.test(content));
 
-// Entropy check
+  // Entropy check
   if (highEntropy(content)) {
     return {
       risk: 'high',
       confidence: 0.95,
+      attack_type: 'adversarial_suffix',
       patterns: ['high-entropy adversarial suffix'],
       recommended_action: 'block',
       sanitized_content: '[BLOCKED_HIGH_ENTROPY]',
@@ -113,10 +114,12 @@ export async function promptRiskCheck(content) {
     };
   }
 
+  // Regex check
   if (matched.length > 0) {
     return {
       risk: matched.length >= 2 ? 'high' : 'medium',
       confidence: 0.97,
+      attack_type: 'prompt_injection',
       patterns: matched.map(p => p.source).slice(0, 3),
       recommended_action: matched.length >= 2 ? 'block' : 'review',
       sanitized_content: sanitize(content, matched),
@@ -125,12 +128,13 @@ export async function promptRiskCheck(content) {
     };
   }
 
-  // Nano check for semantically ambiguous content
+  // Nano check
   const nano = await queryNano(content);
   if (nano.risk === 'high' || nano.risk === 'medium') {
     return {
       risk: nano.risk,
       confidence: nano.confidence || 0.7,
+      attack_type: 'semantic_injection',
       patterns: nano.reasons || ['semantic risk'],
       recommended_action: nano.recommended_action || 'review',
       sanitized_content: content,
@@ -142,6 +146,7 @@ export async function promptRiskCheck(content) {
   return {
     risk: 'low',
     confidence: 0.85,
+    attack_type: null,
     patterns: [],
     recommended_action: 'allow',
     sanitized_content: content,
@@ -149,7 +154,6 @@ export async function promptRiskCheck(content) {
     escalated: false,
   };
 }
-
 export async function malwareCheck(input) {
   const matched = MALWARE_PATTERNS.filter(p => p.test(input));
 
