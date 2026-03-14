@@ -108,7 +108,7 @@ app.get("/health", (req, res) => {
       { path: "/malware-check", price: "$0.001", description: "Malware hash/URL check" },
       { path: "/tool-risk",     price: "$0.003", description: "Tool safety auditor" },
     ],
-    models: ["regex", "gemma3:270m"],
+    models: ["regex", "gemma3:270m"], endpoints: ["/prompt-risk", "/tool-risk", "/malware-check", "/output-risk"],
     status: "online",
   });
 });
