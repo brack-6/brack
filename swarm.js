@@ -399,6 +399,18 @@ export function agentHealthCheck({ window_history, original_goal, current_task, 
   } else {
     signals.indecision = false;
   }
+  // ── 7. Confidence drift ───────────────────────────────────────────────────
+  const confidenceWords = /definitely|certainly|absolutely|I'm sure|without doubt|clearly|obviously/gi;
+  const recentConfidence = (window_history.slice(-3).map(t => t.content || '').join(' ').match(confidenceWords) || []).length;
+  const earlyConfidence = (window_history.slice(0, 3).map(t => t.content || '').join(' ').match(confidenceWords) || []).length;
+  signals.confidence_drift = recentConfidence > earlyConfidence + 3;
+  if (signals.confidence_drift) issues.push('confidence escalating — possible overconfidence drift (warning only)');
+
+  // ── 8. Scope creep ────────────────────────────────────────────────────────
+  const avgTokens = totalTokens / Math.max(window_history.length, 1);
+  const recentAvg = window_history.slice(-3).reduce((s, t) => s + (t.tokens || 0), 0) / 3;
+  signals.scope_creep = window_history.length >= 6 && recentAvg > avgTokens * 2;
+  if (signals.scope_creep) issues.push('response size expanding — possible scope creep');
 
   // ── Overall verdict ───────────────────────────────────────────────────────
   const criticalIssues = [
@@ -411,6 +423,8 @@ export function agentHealthCheck({ window_history, original_goal, current_task, 
   const minorIssues = [
     signals.depth_trap,
     signals.indecision,
+    signals.confidence_drift,
+    signals.scope_creep,
     signals.goal_alignment === 'drifting',
     signals.velocity === 'elevated',
     signals.context_pressure === 'high'
