@@ -234,6 +234,14 @@ const OUTPUT_PATTERNS = [
   /private[_-]?key\s*[:=]\s*0x[a-fA-F0-9]{32,}/i,
   /xox[baprs]-[a-zA-Z0-9]{10,}/i,
   /AKIA[A-Z0-9]{16}/i,
+// System prompt leak patterns
+  /you are (a |an )?(helpful|assistant|AI|language model)/i,
+  /your (instructions|directives|system prompt|guidelines) (are|say|tell)/i,
+  /as (instructed|directed|told) (by|in) (my|the) system/i,
+  /I (was|am) (configured|instructed|programmed|trained) to/i,
+  /my (system prompt|instructions|directives|context) (is|are|say|include)/i,
+  /confidential.*instructions/i,
+  /do not (reveal|share|disclose).*instructions/i,
 ];
 
 export async function outputRiskCheck(content) {
