@@ -1,6 +1,6 @@
 import express from "express";
 import { paymentMiddleware } from "x402-express";
-import { malwareCheck, metabolicCheck, outputRiskCheck, promptRiskCheck, toolRiskCheck } from "./swarm.js";
+import { agentHealthCheck, malwareCheck, metabolicCheck, outputRiskCheck, promptRiskCheck, toolRiskCheck } from "./swarm.js";
 import rateLimit from "express-rate-limit";
 import Database from "better-sqlite3";
 import { createHash } from "crypto";
@@ -90,6 +90,7 @@ const paymentGate = paymentMiddleware(
     "/tool-risk":     { price: "$0.003", network: "base" },
     "/output-risk":   { price: "$0.002", network: "base" },
     "/metabolic-check": { price: "$0.001", network: "base" },
+    "/agent-health":     { price: "$0.002", network: "base" },
   },
   { url: "https://facilitator.cdp.coinbase.com" }
 );
@@ -199,6 +200,18 @@ app.post("/metabolic-check", async (req, res) => {
     const result = metabolicCheck({ window_history, current_task });
     logQuery("/metabolic-check", { window_history: window_history.length }, result, 0.001);
     res.json({ ...result, oracle: "brackoracle/v0.5", endpoint: "/metabolic-check" });
+  } catch (err) {
+    res.status(500).json({ error: "Analysis failed", detail: err.message });
+  }
+});
+
+app.post("/agent-health", async (req, res) => {
+  const { window_history, original_goal, current_task, action_log } = req.body;
+  if (!window_history) return res.status(400).json({ error: "window_history required" });
+  try {
+    const result = agentHealthCheck({ window_history, original_goal, current_task, action_log });
+    logQuery("/agent-health", { window_history: window_history.length }, result, 0.002);
+    res.json({ ...result, oracle: "brackoracle/v0.5", endpoint: "/agent-health" });
   } catch (err) {
     res.status(500).json({ error: "Analysis failed", detail: err.message });
   }

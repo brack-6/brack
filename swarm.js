@@ -325,3 +325,129 @@ export function metabolicCheck({ window_history, current_task }) {
     analysed_by: ['heuristic'],
   };
 }
+
+// ─── AGENT HEALTH CHECK ───────────────────────────────────────────────────────
+export function agentHealthCheck({ window_history, original_goal, current_task, action_log }) {
+  if (!window_history || !Array.isArray(window_history)) {
+    return { error: "window_history array required" };
+  }
+
+  const signals = {};
+  const issues = [];
+
+  // ── 1. Loop detection ─────────────────────────────────────────────────────
+  const recentContent = window_history.slice(-4).map(t => t.content || '').join(' ');
+  const words = recentContent.toLowerCase().split(/\s+/);
+  const wordFreq = {};
+  for (const w of words) wordFreq[w] = (wordFreq[w] || 0) + 1;
+  const repeated = Object.values(wordFreq).filter(v => v >= 3).length;
+  const redundancy = repeated / Math.max(Object.keys(wordFreq).length, 1);
+  signals.looping = redundancy > 0.3;
+  if (signals.looping) issues.push('repetitive reasoning detected');
+
+  // ── 2. Context pressure ───────────────────────────────────────────────────
+  const totalTokens = window_history.reduce((sum, t) => sum + (t.tokens || 0), 0);
+  signals.context_pressure = totalTokens > 6000 ? 'critical' :
+                              totalTokens > 3000 ? 'high' :
+                              totalTokens > 1500 ? 'medium' : 'low';
+  if (signals.context_pressure === 'critical') issues.push('context window critical');
+
+  // ── 3. Velocity spike ─────────────────────────────────────────────────────
+  if (action_log && Array.isArray(action_log) && action_log.length >= 6) {
+    const half = Math.floor(action_log.length / 2);
+    const firstHalf = action_log.slice(0, half).length;
+    const secondHalf = action_log.slice(half).length;
+    const velocityRatio = secondHalf / Math.max(firstHalf, 1);
+    signals.velocity = velocityRatio > 2.5 ? 'runaway' :
+                       velocityRatio > 1.5 ? 'elevated' : 'normal';
+    if (signals.velocity === 'runaway') issues.push('action velocity spike — possible runaway');
+  } else {
+    signals.velocity = 'insufficient_data';
+  }
+
+  // ── 4. Goal drift ─────────────────────────────────────────────────────────
+  if (original_goal && current_task) {
+    const goalWords = new Set(original_goal.toLowerCase().split(/\s+/));
+    const taskWords = current_task.toLowerCase().split(/\s+/);
+    const overlap = taskWords.filter(w => goalWords.has(w)).length;
+    const similarity = overlap / Math.max(taskWords.length, 1);
+    signals.goal_alignment = similarity > 0.4 ? 'aligned' :
+                             similarity > 0.2 ? 'drifting' : 'lost';
+    if (signals.goal_alignment === 'lost') issues.push('current task diverged from original goal');
+    if (signals.goal_alignment === 'drifting') issues.push('possible goal drift');
+  } else {
+    signals.goal_alignment = 'unknown';
+  }
+
+  // ── 5. Depth trap ─────────────────────────────────────────────────────────
+  if (window_history.length >= 4) {
+    const depthKeywords = /subtask|sub-task|step \d+\.\d+|nested|drill|deeper|specifically/i;
+    const recentTurns = window_history.slice(-4).map(t => t.content || '').join(' ');
+    signals.depth_trap = depthKeywords.test(recentTurns);
+    if (signals.depth_trap) issues.push('possible depth trap — agent drilling into subtasks');
+  } else {
+    signals.depth_trap = false;
+  }
+
+  // ── 6. Indecision loop ────────────────────────────────────────────────────
+  if (window_history.length >= 4) {
+    const decisionKeywords = /on the other hand|alternatively|however|but then|or instead|reconsidering/i;
+    const recentTurns = window_history.slice(-4).map(t => t.content || '').join(' ');
+    const decisionMatches = (recentTurns.match(decisionKeywords) || []).length;
+    signals.indecision = decisionMatches >= 3;
+    if (signals.indecision) issues.push('indecision pattern — agent alternating between options');
+  } else {
+    signals.indecision = false;
+  }
+
+  // ── Overall verdict ───────────────────────────────────────────────────────
+  const criticalIssues = [
+    signals.looping,
+    signals.velocity === 'runaway',
+    signals.goal_alignment === 'lost',
+    signals.context_pressure === 'critical'
+  ].filter(Boolean).length;
+
+  const minorIssues = [
+    signals.depth_trap,
+    signals.indecision,
+    signals.goal_alignment === 'drifting',
+    signals.velocity === 'elevated',
+    signals.context_pressure === 'high'
+  ].filter(Boolean).length;
+
+  let overall, action, instruction;
+
+  if (criticalIssues >= 2) {
+    overall = 'critical';
+    action = 'HALT';
+    instruction = 'Multiple critical signals. Halt execution and reset agent state.';
+  } else if (criticalIssues === 1) {
+    overall = 'degraded';
+    action = 'INTERVENE';
+    instruction = issues[0] || 'Critical signal detected. Intervene before proceeding.';
+  } else if (minorIssues >= 2) {
+    overall = 'warning';
+    action = 'REVIEW';
+    instruction = 'Multiple minor signals. Review agent progress before continuing.';
+  } else if (minorIssues === 1) {
+    overall = 'caution';
+    action = 'MONITOR';
+    instruction = issues[0] || 'Minor signal detected. Monitor closely.';
+  } else {
+    overall = 'healthy';
+    action = 'PROCEED';
+    instruction = 'All vitals normal.';
+  }
+
+  return {
+    overall,
+    action,
+    instruction,
+    signals,
+    issues,
+    total_tokens: totalTokens,
+    redundancy_score: parseFloat(redundancy.toFixed(3)),
+    analysed_by: ['heuristic'],
+  };
+}
