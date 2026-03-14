@@ -219,3 +219,49 @@ export async function toolRiskCheck({ tool_description, proposed_call }) {
     escalated: false,
   };
 }
+
+// ─── OUTPUT RISK PATTERNS ─────────────────────────────────────────────────────
+const OUTPUT_PATTERNS = [
+  /sk-[a-zA-Z0-9-]{20,}/i,
+  /eyJ[a-zA-Z0-9_-]{20,}/i,
+  /BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY/i,
+  /api[_-]?key\s*[:=]\s*[a-zA-Z0-9_\-]{16,}/i,
+  /secret[_-]?key\s*[:=]\s*[a-zA-Z0-9_\-]{16,}/i,
+  /password\s*[:=]\s*\S{8,}/i,
+  /token\s*[:=]\s*[a-zA-Z0-9_\-]{16,}/i,
+  /Authorization:\s*Bearer\s+[a-zA-Z0-9_\-\.]{16,}/i,
+  /-----BEGIN CERTIFICATE-----/i,
+  /private[_-]?key\s*[:=]\s*0x[a-fA-F0-9]{32,}/i,
+  /xox[baprs]-[a-zA-Z0-9]{10,}/i,
+  /AKIA[A-Z0-9]{16}/i,
+];
+
+export async function outputRiskCheck(content) {
+  const matched = OUTPUT_PATTERNS.filter(p => p.test(content));
+
+  if (matched.length > 0) {
+    return {
+      risk: matched.length >= 2 ? 'critical' : 'high',
+      confidence: 0.98,
+      attack_type: 'secret_leakage',
+      patterns: matched.map(p => p.source).slice(0, 3),
+      recommended_action: 'block',
+      sanitized_content: content.replace(/sk-[a-zA-Z0-9]{20,}/gi, '[REDACTED_KEY]')
+                                .replace(/eyJ[a-zA-Z0-9_-]{20,}/gi, '[REDACTED_JWT]')
+                                .replace(/AKIA[A-Z0-9]{16}/gi, '[REDACTED_AWS_KEY]'),
+      analysed_by: ['regex'],
+      escalated: false,
+    };
+  }
+
+  return {
+    risk: 'low',
+    confidence: 0.9,
+    attack_type: null,
+    patterns: [],
+    recommended_action: 'allow',
+    sanitized_content: content,
+    analysed_by: ['regex'],
+    escalated: false,
+  };
+}

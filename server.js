@@ -1,6 +1,6 @@
 import express from "express";
 import { paymentMiddleware } from "x402-express";
-import { malwareCheck, promptRiskCheck, toolRiskCheck } from "./swarm.js";
+import { malwareCheck, outputRiskCheck, promptRiskCheck, toolRiskCheck } from "./swarm.js";
 import rateLimit from "express-rate-limit";
 import Database from "better-sqlite3";
 import { createHash } from "crypto";
@@ -88,6 +88,7 @@ const paymentGate = paymentMiddleware(
     "/prompt-risk":   { price: "$0.002", network: "base" },
     "/malware-check": { price: "$0.001", network: "base" },
     "/tool-risk":     { price: "$0.003", network: "base" },
+    "/output-risk":   { price: "$0.002", network: "base" },
   },
   { url: "https://facilitator.cdp.coinbase.com" }
 );
@@ -174,6 +175,18 @@ app.post("/tool-risk", async (req, res) => {
     res.json({ ...result, oracle: "brackoracle/v0.4", endpoint: "/tool-risk" });
   } catch (err) {
     res.status(500).json({ error: "Analysis failed", detail: err.message });
+  }
+});
+
+app.post("/output-risk", async (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content) return res.status(400).json({ error: "content required" });
+    const result = await outputRiskCheck(content);
+    logQuery("/output-risk", { content }, result, 0.002);
+    res.json({ ...result, oracle: "brackoracle/v0.4", endpoint: "/output-risk" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
