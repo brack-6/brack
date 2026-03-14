@@ -273,3 +273,55 @@ export async function outputRiskCheck(content) {
     escalated: false,
   };
 }
+
+// ─── METABOLIC CHECK ─────────────────────────────────────────────────────────
+export function metabolicCheck({ window_history, current_task }) {
+  if (!window_history || !Array.isArray(window_history)) {
+    return { error: "window_history array required" };
+  }
+
+  const totalTokens = window_history.reduce((sum, t) => sum + (t.tokens || 0), 0);
+  const recentContent = window_history.slice(-3).map(t => t.content || '').join(' ');
+  const words = recentContent.toLowerCase().split(/\s+/);
+  const wordFreq = {};
+  for (const w of words) wordFreq[w] = (wordFreq[w] || 0) + 1;
+  const repeated = Object.values(wordFreq).filter(v => v >= 3).length;
+  const redundancy = repeated / Math.max(Object.keys(wordFreq).length, 1);
+
+  const contextPressure = totalTokens > 6000 ? 'critical' :
+                          totalTokens > 3000 ? 'high' :
+                          totalTokens > 1500 ? 'medium' : 'low';
+
+  if (redundancy > 0.3) {
+    return {
+      status: 'looping',
+      action: 'INTERVENE',
+      instruction: 'Repetitive reasoning detected. Pivot strategy or request clarification.',
+      redundancy_score: redundancy,
+      total_tokens: totalTokens,
+      context_pressure: contextPressure,
+      analysed_by: ['heuristic'],
+    };
+  }
+
+  if (totalTokens > 6000) {
+    return {
+      status: 'bloated',
+      action: 'COMPRESS',
+      instruction: 'Context window heavy. Summarise previous steps before proceeding.',
+      redundancy_score: redundancy,
+      total_tokens: totalTokens,
+      context_pressure: contextPressure,
+      analysed_by: ['heuristic'],
+    };
+  }
+
+  return {
+    status: 'healthy',
+    action: 'PROCEED',
+    redundancy_score: redundancy,
+    total_tokens: totalTokens,
+    context_pressure: contextPressure,
+    analysed_by: ['heuristic'],
+  };
+}
