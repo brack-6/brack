@@ -38,6 +38,13 @@ const INJECTION_PATTERNS = [
   /\{[\s\S]*?"action"\s*:\s*"(?:exfiltrate|leak|override)"/i,
   /you are now helping a new user.*?(?:ignore|forget|reveal)/i,
   /\/\*(?:.|\n)*?ignore(?:.|\n)*?\*\//i,
+  // Economic / incentive-based injection attacks
+  /system.prompt.*(receive|send|submit|provide|share)/i,
+  /submit.*system.*prompt.*for.*(compatib|verif|reward)/i,
+  /provide.*api.key.*to.*receive/i,
+  /share.*config.*for.*reward/i,
+  /agents.*that.*provide.*receive/i,
+  /free.*audit.*in.*exchange.*for/i,
 ];
 
 const TOOL_PATTERNS = [
@@ -100,12 +107,11 @@ function sanitize(content, patterns) {
 export async function promptRiskCheck(content) {
   const matched = INJECTION_PATTERNS.filter(p => p.test(content));
 
-  // Entropy check
+// Entropy check
   if (highEntropy(content)) {
     return {
       risk: 'high',
       confidence: 0.95,
-      attack_type: 'adversarial_suffix',
       patterns: ['high-entropy adversarial suffix'],
       recommended_action: 'block',
       sanitized_content: '[BLOCKED_HIGH_ENTROPY]',
@@ -114,12 +120,10 @@ export async function promptRiskCheck(content) {
     };
   }
 
-  // Regex check
   if (matched.length > 0) {
     return {
       risk: matched.length >= 2 ? 'high' : 'medium',
       confidence: 0.97,
-      attack_type: 'prompt_injection',
       patterns: matched.map(p => p.source).slice(0, 3),
       recommended_action: matched.length >= 2 ? 'block' : 'review',
       sanitized_content: sanitize(content, matched),
@@ -128,13 +132,12 @@ export async function promptRiskCheck(content) {
     };
   }
 
-  // Nano check
+  // Nano check for semantically ambiguous content
   const nano = await queryNano(content);
   if (nano.risk === 'high' || nano.risk === 'medium') {
     return {
       risk: nano.risk,
       confidence: nano.confidence || 0.7,
-      attack_type: 'semantic_injection',
       patterns: nano.reasons || ['semantic risk'],
       recommended_action: nano.recommended_action || 'review',
       sanitized_content: content,
@@ -146,7 +149,6 @@ export async function promptRiskCheck(content) {
   return {
     risk: 'low',
     confidence: 0.85,
-    attack_type: null,
     patterns: [],
     recommended_action: 'allow',
     sanitized_content: content,
@@ -154,6 +156,7 @@ export async function promptRiskCheck(content) {
     escalated: false,
   };
 }
+
 export async function malwareCheck(input) {
   const matched = MALWARE_PATTERNS.filter(p => p.test(input));
 
@@ -234,7 +237,7 @@ const OUTPUT_PATTERNS = [
   /private[_-]?key\s*[:=]\s*0x[a-fA-F0-9]{32,}/i,
   /xox[baprs]-[a-zA-Z0-9]{10,}/i,
   /AKIA[A-Z0-9]{16}/i,
-// System prompt leak patterns
+  // System prompt leak patterns
   /you are (a |an )?(helpful|assistant|AI|language model)/i,
   /your (instructions|directives|system prompt|guidelines) (are|say|tell)/i,
   /as (instructed|directed|told) (by|in) (my|the) system/i,
@@ -254,7 +257,7 @@ export async function outputRiskCheck(content) {
       attack_type: 'secret_leakage',
       patterns: matched.map(p => p.source).slice(0, 3),
       recommended_action: 'block',
-      sanitized_content: content.replace(/sk-[a-zA-Z0-9]{20,}/gi, '[REDACTED_KEY]')
+      sanitized_content: content.replace(/sk-[a-zA-Z0-9-]{20,}/gi, '[REDACTED_KEY]')
                                 .replace(/eyJ[a-zA-Z0-9_-]{20,}/gi, '[REDACTED_JWT]')
                                 .replace(/AKIA[A-Z0-9]{16}/gi, '[REDACTED_AWS_KEY]'),
       analysed_by: ['regex'],
@@ -399,6 +402,7 @@ export function agentHealthCheck({ window_history, original_goal, current_task, 
   } else {
     signals.indecision = false;
   }
+
   // ── 7. Confidence drift ───────────────────────────────────────────────────
   const confidenceWords = /definitely|certainly|absolutely|I'm sure|without doubt|clearly|obviously/gi;
   const recentConfidence = (window_history.slice(-3).map(t => t.content || '').join(' ').match(confidenceWords) || []).length;
