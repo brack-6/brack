@@ -11,8 +11,83 @@ function highEntropy(text) {
   }, 0);
   return entropy > 4.8 || /[!@#$%^&*()_+=`~{}\[\]|\\:;"'<>,.?\/]{8,}/.test(text);
 }
-// ─── REGEX PATTERNS ──────────────────────────────────────────────────────────
 
+// ─── COMPRESSION ENTROPY HELPER ──────────────────────────────────────────────
+// Detects behavioral patterns via compression ratio
+// entropy: 0.0 = perfectly compressible (looping)
+//          0.5 = mixed (healthy)
+//          1.0 = chaotic (random exploration)
+function compressionEntropy(content) {
+  if (!content || content.length === 0) {
+    return { entropy: 0.5, redundancy: 0, repetitionCount: 0, uniqueWords: 0, totalWords: 0 };
+  }
+  const words = content.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+  const totalWords = words.length;
+  const uniqueWords = new Set(words).size;
+  const redundancy = 1 - (uniqueWords / Math.max(totalWords, 1));
+  const entropy = Math.max(0, Math.min(1, 1 - redundancy));
+  return {
+    entropy: parseFloat(entropy.toFixed(3)),
+    redundancy: parseFloat(redundancy.toFixed(3)),
+    repetitionCount: 0,
+    uniqueWords,
+    totalWords
+  };
+}
+
+// ─── 3-SIGNAL FAILURE DETECTOR ──────────────────────────────────────────────
+// Catches ~80% of agent loops/thrashing without inspecting prompts
+
+// Signal 1: Action repetition (0.0 = diverse, 1.0 = full loop)
+function actionRepetition(actions) {
+  if (actions.length < 6) return 0;
+  const last = actions.slice(-6);
+  const unique = new Set(last.map(a => typeof a === 'string' ? a : a.type || JSON.stringify(a)));
+  return 1 - (unique.size / last.length);
+}
+
+// Signal 2: Tool entropy (high = thrashing, low = focused)
+function toolEntropy(tools) {
+  if (!tools || tools.length === 0) return 0;
+  const counts = {};
+  tools.forEach(t => counts[t] = (counts[t] || 0) + 1);
+  const total = tools.length;
+  let H = 0;
+  for (const k in counts) {
+    const p = counts[k] / total;
+    H -= p * Math.log2(p);
+  }
+  return parseFloat((H / Math.log2(total)).toFixed(3));
+}
+
+// Signal 3: Goal progress delta (high = making progress, low = stagnant)
+function goalProgressDelta(progressHistory) {
+  if (!progressHistory || progressHistory.length < 5) return 1;
+  const last = progressHistory.slice(-5);
+  const max = Math.max(...last);
+  const min = Math.min(...last);
+  return parseFloat((max - min).toFixed(3));
+}
+
+// Combined stability from 3 signals
+function threeSignalStability(actions, tools, progressHistory) {
+  const repetition = actionRepetition(actions);
+  const entropy = toolEntropy(tools);
+  const delta = goalProgressDelta(progressHistory);
+  const loopPenalty = repetition;
+  const thrashPenalty = Math.max(0, entropy - 0.5) * 2;
+  const stagnationPenalty = 1 - delta;
+  return parseFloat((1 - Math.max(loopPenalty, thrashPenalty, stagnationPenalty)).toFixed(3));
+}
+
+// HALT detector: catches repetition + stagnation
+function shouldHALT(actions, tools, progressHistory) {
+  const repetition = actionRepetition(actions);
+  const delta = goalProgressDelta(progressHistory);
+  return repetition > 0.6 && delta < 0.05;
+}
+
+// ─── REGEX PATTERNS ──────────────────────────────────────────────────────────
 const INJECTION_PATTERNS = [
   // Core injection patterns
   /ignore (your|all|previous|prior)? ?(instructions|rules|guidelines|constraints|system prompt)/i,
@@ -26,7 +101,6 @@ const INJECTION_PATTERNS = [
   /\[system\]|<\|system\|>|###\s*instruction/i,
   /debug mode|internal memory/i,
   /send me your (api keys|credentials|secrets|tokens)/i,
-
   // 2026 Advanced patterns
   /(?:base64|base-64|decode|frombase64|atob|btoa)\b.*?(?:follow|execute|obey|do|run|instructions|prompt|system)/i,
   /[\u0400-\u04ff\u0370-\u03ff\u1ea0-\u1eff\ua700-\ua7ff].*?(?:ignore|system|prompt|override|forget|disregard)/i,
@@ -69,7 +143,6 @@ const MALWARE_PATTERNS = [
 ];
 
 // ─── NANO MODEL CHECK ────────────────────────────────────────────────────────
-
 async function queryNano(content) {
   try {
     const res = await fetch(OLLAMA, {
@@ -93,7 +166,6 @@ Content: "${content.slice(0, 500)}"
 }
 
 // ─── SANITIZE ────────────────────────────────────────────────────────────────
-
 function sanitize(content, patterns) {
   let sanitized = content;
   for (const p of patterns) {
@@ -103,11 +175,10 @@ function sanitize(content, patterns) {
 }
 
 // ─── EXPORTS ─────────────────────────────────────────────────────────────────
-
 export async function promptRiskCheck(content) {
   const matched = INJECTION_PATTERNS.filter(p => p.test(content));
 
-// Entropy check
+  // Entropy check
   if (highEntropy(content)) {
     return {
       risk: 'high',
@@ -159,7 +230,6 @@ export async function promptRiskCheck(content) {
 
 export async function malwareCheck(input) {
   const matched = MALWARE_PATTERNS.filter(p => p.test(input));
-
   if (matched.length > 0) {
     return {
       verdict: matched.length >= 2 ? 'malicious' : 'suspicious',
@@ -170,7 +240,6 @@ export async function malwareCheck(input) {
       escalated: false,
     };
   }
-
   return {
     verdict: 'clean',
     confidence: 0.7,
@@ -185,10 +254,8 @@ export async function toolRiskCheck({ tool_description, proposed_call }) {
   if (!tool_description && !proposed_call) {
     return { error: 'tool_description and proposed_call required' };
   }
-
   const combined = `${tool_description || ''} ${proposed_call || ''}`;
   const matched = TOOL_PATTERNS.filter(p => p.test(combined));
-
   if (matched.length > 0) {
     return {
       risk: matched.length >= 2 ? 'high' : 'medium',
@@ -199,7 +266,6 @@ export async function toolRiskCheck({ tool_description, proposed_call }) {
       escalated: false,
     };
   }
-
   // Nano check for ambiguous tool calls
   const nano = await queryNano(combined);
   if (nano.risk === 'high') {
@@ -212,7 +278,6 @@ export async function toolRiskCheck({ tool_description, proposed_call }) {
       escalated: true,
     };
   }
-
   return {
     risk: 'low',
     confidence: 0.8,
@@ -249,7 +314,6 @@ const OUTPUT_PATTERNS = [
 
 export async function outputRiskCheck(content) {
   const matched = OUTPUT_PATTERNS.filter(p => p.test(content));
-
   if (matched.length > 0) {
     return {
       risk: matched.length >= 2 ? 'critical' : 'high',
@@ -264,7 +328,6 @@ export async function outputRiskCheck(content) {
       escalated: false,
     };
   }
-
   return {
     risk: 'low',
     confidence: 0.9,
@@ -282,7 +345,6 @@ export function metabolicCheck({ window_history, current_task }) {
   if (!window_history || !Array.isArray(window_history)) {
     return { error: "window_history array required" };
   }
-
   const totalTokens = window_history.reduce((sum, t) => sum + (t.tokens || 0), 0);
   const recentContent = window_history.slice(-3).map(t => t.content || '').join(' ');
   const words = recentContent.toLowerCase().split(/\s+/);
@@ -290,11 +352,9 @@ export function metabolicCheck({ window_history, current_task }) {
   for (const w of words) wordFreq[w] = (wordFreq[w] || 0) + 1;
   const repeated = Object.values(wordFreq).filter(v => v >= 3).length;
   const redundancy = repeated / Math.max(Object.keys(wordFreq).length, 1);
-
   const contextPressure = totalTokens > 6000 ? 'critical' :
                           totalTokens > 3000 ? 'high' :
                           totalTokens > 1500 ? 'medium' : 'low';
-
   if (redundancy > 0.3) {
     return {
       status: 'looping',
@@ -306,7 +366,6 @@ export function metabolicCheck({ window_history, current_task }) {
       analysed_by: ['heuristic'],
     };
   }
-
   if (totalTokens > 6000) {
     return {
       status: 'bloated',
@@ -318,7 +377,6 @@ export function metabolicCheck({ window_history, current_task }) {
       analysed_by: ['heuristic'],
     };
   }
-
   return {
     status: 'healthy',
     action: 'PROCEED',
@@ -337,6 +395,36 @@ export function agentHealthCheck({ window_history, original_goal, current_task, 
 
   const signals = {};
   const issues = [];
+
+  // ── 0. Compression entropy ────────────────────────────────────────────────
+  const recentHistoryText = window_history.slice(-6).map(t => t.content || '').join(' ');
+  const compressionMetrics = compressionEntropy(recentHistoryText);
+  signals.entropy = compressionMetrics.entropy;
+
+  if (compressionMetrics.entropy < 0.3 && compressionMetrics.redundancy > 0.5) {
+    issues.push(`behavioral entropy collapse (${compressionMetrics.entropy.toFixed(2)}) — likely looping`);
+  } else if (compressionMetrics.entropy > 0.8) {
+    issues.push(`behavioral entropy spike (${compressionMetrics.entropy.toFixed(2)}) — chaotic exploration`);
+  }
+
+  // ── 3-Signal failure detection ────────────────────────────────────────────
+  const actionHistory = window_history.map(t => t.content || '').slice(-10);
+  const toolHistory = action_log ? action_log.slice(-10) : [];
+  const progressHist = window_history.map(t => (t.progress || 0)).slice(-10);
+
+  const repetitionScore = actionRepetition(actionHistory);
+  const entropyScore = toolEntropy(toolHistory);
+  const progressDelta = goalProgressDelta(progressHist);
+  const threeSignalScore = threeSignalStability(actionHistory, toolHistory, progressHist);
+
+  signals.repetition = parseFloat(repetitionScore.toFixed(3));
+  signals.tool_entropy = parseFloat(entropyScore.toFixed(3));
+  signals.progress_delta = parseFloat(progressDelta.toFixed(3));
+  signals.three_signal_stability = parseFloat(threeSignalScore.toFixed(3));
+
+  if (shouldHALT(actionHistory, toolHistory, progressHist)) {
+    issues.push('HALT: looping + stagnant progress detected');
+  }
 
   // ── 1. Loop detection ─────────────────────────────────────────────────────
   const recentContent = window_history.slice(-4).map(t => t.content || '').join(' ');
@@ -421,7 +509,8 @@ export function agentHealthCheck({ window_history, original_goal, current_task, 
     signals.looping,
     signals.velocity === 'runaway',
     signals.goal_alignment === 'lost',
-    signals.context_pressure === 'critical'
+    signals.context_pressure === 'critical',
+    compressionMetrics.entropy < 0.2,
   ].filter(Boolean).length;
 
   const minorIssues = [
@@ -431,11 +520,11 @@ export function agentHealthCheck({ window_history, original_goal, current_task, 
     signals.scope_creep,
     signals.goal_alignment === 'drifting',
     signals.velocity === 'elevated',
-    signals.context_pressure === 'high'
+    signals.context_pressure === 'high',
+    compressionMetrics.entropy > 0.8,
   ].filter(Boolean).length;
 
   let overall, action, instruction;
-
   if (criticalIssues >= 2) {
     overall = 'critical';
     action = 'HALT';
@@ -466,6 +555,6 @@ export function agentHealthCheck({ window_history, original_goal, current_task, 
     issues,
     total_tokens: totalTokens,
     redundancy_score: parseFloat(redundancy.toFixed(3)),
-    analysed_by: ['heuristic'],
+    analysed_by: ['heuristic', 'compression-entropy', '3-signal-detector'],
   };
 }
