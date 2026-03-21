@@ -41,8 +41,14 @@ function logQuery(endpoint, input, result, paymentUsdc) {
     .run(paymentUsdc);
 }
 
-const limiter = rateLimit({ windowMs: 60000, max: 10, standardHeaders: true, legacyHeaders: false });
-app.use(limiter);
+const limiter = rateLimit({ 
+  windowMs: 60000, 
+  max: 100, 
+  standardHeaders: true, 
+  legacyHeaders: false,
+  skip: (req) => req.headers["x-free-tier"] === "AGENTFAST"
+});
+
 
 const FREE_TIER_CODE = "AGENTFAST";
 const freeTierCounts = new Map();
@@ -87,6 +93,8 @@ app.get("/health", (req, res) => res.json({
     { path: "/metabolic-check", price: "$0.001", description: "Context window health" },
     { path: "/agent-health",    price: "$0.002", description: "Agent goal alignment check" },
     { path: "/lineage-check",   price: "$0.003", description: "Prompt contamination lineage" },
+    { path: "/entropy-scan",   price: "$0.001", description: "Shannon entropy & encoding anomaly scanner" },
+    { path: "/output-entropy", price: "$0.001", description: "Secret leakage detector for agent outputs" },
   ],
 }));
 

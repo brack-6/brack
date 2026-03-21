@@ -1,0 +1,225 @@
+/**
+ * Brack Autoresearch Optimizer
+ * Reads JSON_SUMMARY from eval harness, mutates gemma3 prompt in swarm.js,
+ * reruns eval, keeps change if score improves, reverts if not.
+ * Stops when score >= 95% for 3 consecutive rounds.
+ *
+ * Usage:
+ *   node brack-optimize.js
+ *   node brack-optimize.js --rounds 20
+ *   node brack-optimize.js --target 90
+ *   node brack-optimize.js --dry-run   (show mutations without applying)
+ */
+
+import { execSync } from "child_process";
+import { readFileSync, writeFileSync, appendFileSync } from "fs";
+import { resolve } from "path";
+
+const SWARM_PATH    = resolve("/home/brack/brackoracle/swarm.js");
+const EVAL_PATH     = resolve("/home/brack/brackoracle/brack-eval.js");
+const LOG_PATH      = resolve("/home/brack/brackoracle/tasks/autoresearch-log.jsonl");
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+
+const MAX_ROUNDS    = process.argv.includes("--rounds")
+  ? parseInt(process.argv[process.argv.indexOf("--rounds") + 1], 10) : 30;
+const TARGET_SCORE  = process.argv.includes("--target")
+  ? parseInt(process.argv[process.argv.indexOf("--target") + 1], 10) : 95;
+const DRY_RUN       = process.argv.includes("--dry-run");
+const CONSEC_WIN    = 3; // consecutive rounds at target to stop
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function runEval() {
+  try {
+    const out = execSync(`node ${EVAL_PATH}`, { encoding: "utf8", timeout: 120000 });
+    const line = out.split("\n").find(l => l.startsWith("JSON_SUMMARY:"));
+    if (!line) throw new Error("No JSON_SUMMARY line in eval output");
+    return JSON.parse(line.replace("JSON_SUMMARY:", ""));
+  } catch (err) {
+    console.error("Eval failed:", err.message);
+    return null;
+  }
+}
+
+function extractPrompt(code) {
+  const match = code.match(/prompt: `([\s\S]*?)`\s*,\s*\n\s*stream:/);
+  if (!match) throw new Error("Could not find gemma3 prompt in swarm.js");
+  return match[1];
+}
+
+function replacePrompt(code, newPrompt) {
+  return code.replace(
+    /prompt: `([\s\S]*?)`(\s*,\s*\n\s*stream:)/,
+    `prompt: \`${newPrompt}\`$2`
+  );
+}
+
+function logRound(entry) {
+  appendFileSync(LOG_PATH, JSON.stringify(entry) + "\n");
+}
+
+async function getMutation(currentPrompt, summary) {
+  const failingChecks = Object.entries(summary.byCheck)
+    .filter(([, v]) => v.total > 0 && v.pass / v.total < 0.9)
+    .map(([id, v]) => `${id}: ${v.label} (${Math.round(v.pass/v.total*100)}%)`);
+
+  const body = {
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 1000,
+    messages: [{
+      role: "user",
+      content: `You are optimizing a security prompt for a small local LLM (gemma3:270m, 270M params) that classifies prompt injection attacks.
+
+CURRENT SCORE: ${summary.baselineScore}%
+FAILING CHECKS:
+${failingChecks.join("\n")}
+
+CURRENT PROMPT:
+${currentPrompt}
+
+Make ONE small, targeted improvement to help the model correctly classify the failing checks.
+Rules:
+- Change only 1-2 things (add an example, clarify a rule, fix ambiguity)
+- Keep the prompt under 600 words — small models lose coherence with long prompts
+- Do NOT change the JSON output format line
+- Focus on the lowest-scoring check first
+
+Respond with ONLY the new prompt text, nothing else. No explanation, no markdown, no quotes.`
+    }]
+  };
+
+  const res = await fetch(ANTHROPIC_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Claude API error: ${res.status} — ${errBody.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  return data.content[0].text.trim();
+}
+
+// ── Main loop ─────────────────────────────────────────────────────────────────
+
+async function run() {
+  console.log("\n╔══════════════════════════════════════════════════╗");
+  console.log("║       BRACK AUTORESEARCH OPTIMIZER               ║");
+  console.log("╚══════════════════════════════════════════════════╝");
+  console.log(`  Max rounds : ${MAX_ROUNDS}`);
+  console.log(`  Target     : ${TARGET_SCORE}%`);
+  console.log(`  Dry run    : ${DRY_RUN}`);
+  console.log(`  Log        : ${LOG_PATH}\n`);
+
+  // Get baseline
+  console.log("─── Running baseline eval...");
+  let current = runEval();
+  if (!current) { console.error("Baseline eval failed. Is Brack running?"); process.exit(1); }
+  console.log(`  Baseline score: ${current.baselineScore}%\n`);
+
+  let bestScore = current.baselineScore;
+  let consecWins = 0;
+
+  for (let round = 1; round <= MAX_ROUNDS; round++) {
+    console.log(`─── Round ${round}/${MAX_ROUNDS} (current best: ${bestScore}%) ───`);
+
+    if (bestScore >= TARGET_SCORE) {
+      consecWins++;
+      console.log(`  ✓ At target! (${consecWins}/${CONSEC_WIN} consecutive)`);
+      if (consecWins >= CONSEC_WIN) {
+        console.log(`\n✓ DONE — held ${TARGET_SCORE}%+ for ${CONSEC_WIN} consecutive rounds`);
+        break;
+      }
+    } else {
+      consecWins = 0;
+    }
+
+    // Read current swarm.js
+    const code = readFileSync(SWARM_PATH, "utf8");
+    let currentPrompt;
+    try {
+      currentPrompt = extractPrompt(code);
+    } catch (err) {
+      console.error("  ✗ Could not extract prompt:", err.message);
+      break;
+    }
+
+    // Get mutation from Claude
+    console.log("  Requesting mutation from Claude...");
+    let newPrompt;
+    try {
+      newPrompt = await getMutation(currentPrompt, current);
+    } catch (err) {
+      console.error("  ✗ Mutation failed:", err.message);
+      logRound({ round, error: err.message, timestamp: new Date().toISOString() });
+      continue;
+    }
+
+    if (DRY_RUN) {
+      console.log("  [DRY RUN] Proposed mutation:");
+      console.log(newPrompt.slice(0, 300) + "...");
+      continue;
+    }
+
+    // Apply mutation
+    const newCode = replacePrompt(code, newPrompt);
+    writeFileSync(SWARM_PATH, newCode);
+    execSync("pm2 restart brackoracle", { stdio: "ignore" });
+    await new Promise(r => setTimeout(r, 3000)); // let server restart
+
+    // Eval with mutation
+    console.log("  Running eval...");
+    const result = runEval();
+    if (!result) {
+      console.log("  ✗ Eval errored — reverting");
+      writeFileSync(SWARM_PATH, code);
+      execSync("pm2 restart brackoracle", { stdio: "ignore" });
+      logRound({ round, action: "revert", reason: "eval error", timestamp: new Date().toISOString() });
+      continue;
+    }
+
+    const delta = result.baselineScore - bestScore;
+    const kept = delta >= 0;
+
+    console.log(`  Score: ${result.baselineScore}% (${delta >= 0 ? "+" : ""}${delta}%) → ${kept ? "KEPT ✓" : "REVERTED ✗"}`);
+
+    logRound({
+      round,
+      scoreBefore: bestScore,
+      scoreAfter: result.baselineScore,
+      delta,
+      kept,
+      promptBefore: currentPrompt.slice(0, 200),
+      promptAfter: newPrompt.slice(0, 200),
+      byCheck: result.byCheck,
+      timestamp: new Date().toISOString(),
+    });
+
+    if (kept) {
+      bestScore = result.baselineScore;
+      current = result;
+      console.log(`  Best score updated to ${bestScore}%`);
+    } else {
+      // Revert
+      writeFileSync(SWARM_PATH, code);
+      execSync("pm2 restart brackoracle", { stdio: "ignore" });
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    // Brief pause between rounds
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
+  console.log(`\n─────────────────────────────────────────────────────`);
+  console.log(`  FINAL SCORE: ${bestScore}%`);
+  console.log(`  Log saved to: ${LOG_PATH}`);
+  console.log(`─────────────────────────────────────────────────────\n`);
+}
+
+run().catch(err => { console.error("Fatal:", err); process.exit(1); });
