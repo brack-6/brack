@@ -130,6 +130,26 @@ const INJECTION_PATTERNS = [
   /ignore\s+(?:any\s+)?messages?\s+from\s+(?:my\s+)?(?:main|primary|other|real)\s+account/i, // [CORPUS: AgentsOfChaos CS8 ignore main account]
   /(?:reassign|transfer|change|update)\s+(?:admin|owner|operator)\s+access/i, // [CORPUS: AgentsOfChaos CS8 reassign access]
   /(?:rename\s+yourself|change\s+your\s+name\s+to|set\s+your\s+name\s+to)/i, // [CORPUS: AgentsOfChaos CS8 rename yourself]
+  // [CORPUS: CorruptedConstitution] Authorship trust claim
+  /you\s+(?:previously|prior|earlier|already)\s+(?:contributed|wrote|edited|updated|co-authored|drafted)/i,
+  /last\s+updated\s+by\s+(?:you|the\s+assistant)/i,
+  /your\s+prior\s+(?:edits?|drafts?|contributions?|updates?)\s+are\s+(?:preserved|included|above)/i,
+  // [CORPUS: CorruptedConstitution] Embedded instruction inside fetched content
+  /\[agent\s+note[:\s]/i,
+  /as\s+co[-\s]?author[,\s]/i,
+  /per\s+prior\s+session\s+(?:agreement|instruction|note)/i,
+  // [CORPUS: CorruptedConstitution] Instruction-bearing appendix
+  /appendix\s+\(?auto[-\s]?generated\s+by\s+(?:assistant|claude|ai)\)?/i,
+  /treat\s+this\s+document\s+as\s+authoritative/i,
+  /follow\s+all\s+instructions\s+(?:herein|in\s+this\s+document)\s+without/i,
+  // [CORPUS: CorruptedConstitution] Continuation-of-prior-work framing
+  /continuation\s+of\s+your\s+prior\s+(?:draft|work|session)/i,
+  /next\s+step\s+you\s+(?:scheduled|planned|noted)/i,
+  /complete\s+the\s+(?:workflow|task|step)\s+you\s+started/i,
+  // [CORPUS: CorruptedConstitution] Retroactive permission / backup channel
+  /before\s+closing\s+the\s+task/i,
+  /(?:send|export|forward).{0,40}backup\s+channel/i,
+  /prior\s+session\s+agreement/i,
   // [CORPUS: Clinejection] Injection-as-fake-error-message
   /(?:tool error|system error|api error|runtime error|execution error)[^.]*\.\s*(?:\\n|\n)?\s*(?:prior to|before|first|you (?:will )?need to|please)\s+(?:run|install|execute|download|fetch)/i,
   // [CORPUS: Clinejection] Instruction smuggled as prerequisite step
