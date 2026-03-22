@@ -66,7 +66,8 @@ _To be filled after Phase 2 completes_
 |-------|-------|------------|
 | 0 (baseline) | 80% | C1=0%, C2=0%, C4=0% — detection sensitivity. C3/C5/C6=100% |
 | Manual iteration | 95% | C1=91%, C4=100%, C3/C5/C6=100%. 3 edge cases remain |
+| Final harness fix | 97% | C2=67%, C1=91%. 2 genuine edge cases: inj-08 (roleplay), med-02 (config probe) |
 
 ---
 
-_Last updated: 2026-03-21_
+_Last updated: 2026-03-21 — committed at 97%_

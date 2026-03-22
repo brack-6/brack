@@ -82,3 +82,15 @@ EOF` before assuming a server/restart issue.
 - Baseline: 80%, 20 cases, 0 errors
 - Real failure targets: inj-03/04/06/07/08/med-01 returning LOW — gemma3 not catching them
 - **Next:** Run optimizer targeting the LOW failures, or add regex for inj cases slipping through
+
+### L010 — Harness bugs inflate failure counts
+**Pattern:** inj-06/07 were reported as failures for 3 sessions but the detection was correct — the harness C2 check wasn't accepting MEDIUM even after test cases were reclassified. Always verify whether a failure is a detection gap or a harness bug before patching swarm.js.
+**Rule:** When a case returns the expected risk level but still fails a check, audit the check logic first. The harness is code and has bugs too.
+
+### L011 — Python is safer than Node for file patching
+**Pattern:** Every Node.js patch script that used template literals or heredocs corrupted \s to s, breaking regex patterns silently. Python string handling is predictable.
+**Rule:** Always use Python for swarm.js patches. Never use Node heredocs or template literals when writing regex strings to files.
+
+### L012 — 97% on 20 synthetic cases is a starting point, not a ceiling
+**Pattern:** All 20 corpus cases were designed by us in one session. The two remaining failures (roleplay bypass, config probe) are genuinely ambiguous and may not need fixing — they reflect real uncertainty about whether the inputs are malicious.
+**Rule:** Ship at 97%, grow the corpus from real traffic. SQLite logs are the ground truth. Synthetic cases plateau; real cases compound.
