@@ -1,6 +1,6 @@
 import express from "express";
-import { paymentMiddleware } from "x402-express";
-import { facilitator } from "@coinbase/x402";
+//import { paymentMiddleware } from "x402-express";
+//import { facilitator } from "@coinbase/x402";
 import { agentHealthCheck, malwareCheck, metabolicCheck, outputRiskCheck, promptRiskCheck, toolRiskCheck } from "./swarm.js";
 import { lineageCheck } from "./lineage.js";
 import { entropyScan, outputEntropy } from "./entropy.js";
@@ -62,7 +62,7 @@ function isFreeTier(req) {
   return true;
 }
 
-const paymentGate = paymentMiddleware(
+/*const paymentGate = paymentMiddleware(
   WALLET,
   {
     "/prompt-risk":     { price: "$0.002", network: "base", description: "Prompt injection and jailbreak risk scanner. Detects instruction overrides, role hijacking, system prompt extraction, and indirect injection. Returns risk level, confidence score, matched patterns, and sanitized content." },
@@ -76,25 +76,25 @@ const paymentGate = paymentMiddleware(
     "/lineage-check":  { price: "$0.003", network: "base", description: "Prompt lineage and contamination tracking for multi-agent pipelines. Detects whether injection patterns from one agent hop survive and propagate to downstream agents. Pass lineage_id between agents for tamper-evident chain-of-custody audit." },
   },
   facilitator
-);
+);*/
 
 app.use((req, res, next) => {
   if (isFreeTier(req)) return next();
-  return paymentGate(req, res, next);
+  return next(); // x402 disabled — re-enable when CDP auth fixed
 });
 
 app.get("/health", (req, res) => res.json({
-  service: "BrackOracle", version: "0.5.0", status: "online",
+  service: "BrackOracle", version: "0.5.0", status: "online", base_url: "https://brack-hive.tail4f568d.ts.net/oracle",
   endpoints: [
-    { path: "/prompt-risk",     price: "$0.002", description: "Prompt injection scanner" },
-    { path: "/malware-check",   price: "$0.001", description: "Malware/URL threat check" },
-    { path: "/tool-risk",       price: "$0.003", description: "Tool call safety auditor" },
-    { path: "/output-risk",     price: "$0.002", description: "Output risk scanner" },
-    { path: "/metabolic-check", price: "$0.001", description: "Context window health" },
-    { path: "/agent-health",    price: "$0.002", description: "Agent goal alignment check" },
-    { path: "/lineage-check",   price: "$0.003", description: "Prompt contamination lineage" },
-    { path: "/entropy-scan",   price: "$0.001", description: "Shannon entropy & encoding anomaly scanner" },
-    { path: "/output-entropy", price: "$0.001", description: "Secret leakage detector for agent outputs" },
+    { path: "/oracle/prompt-risk",     price: "$0.002", description: "Prompt injection scanner" },
+    { path: "/oracle/malware-check",   price: "$0.001", description: "Malware/URL threat check" },
+    { path: "/oracle/tool-risk",       price: "$0.003", description: "Tool call safety auditor" },
+    { path: "/oracle/output-risk",     price: "$0.002", description: "Output risk scanner" },
+    { path: "/oracle/metabolic-check", price: "$0.001", description: "Context window health" },
+    { path: "/oracle/agent-health",    price: "$0.002", description: "Agent goal alignment check" },
+    { path: "/oracle/lineage-check",   price: "$0.003", description: "Prompt contamination lineage" },
+    { path: "/oracle/entropy-scan",   price: "$0.001", description: "Shannon entropy & encoding anomaly scanner" },
+    { path: "/oracle/output-entropy", price: "$0.001", description: "Secret leakage detector for agent outputs" },
   ],
 }));
 
