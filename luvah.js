@@ -130,10 +130,10 @@ const LUVAH_ROLE = {
       if (!match) return { found: [], critical: null, note: raw };
       const parsed = JSON.parse(match[0]);
       const VALID = new Set(LUVAH_TAXONOMY.failures.map(f => f.id));
-      const found = (parsed.found || []).filter(id => VALID.has(id)).slice(0, 3);
-      const critical = VALID.has(parsed.critical) ? parsed.critical : (found[0] || null);
-      const failures = found.map(id => LUVAH_TAXONOMY.failures.find(f => f.id === id));
-      return { found, critical, note: parsed.note || null, failures };
+      const signals = (parsed.found || []).filter(id => VALID.has(id)).slice(0, 3);
+      const priority = VALID.has(parsed.critical) ? parsed.critical : (signals[0] || null);
+      const failures = signals.map(id => LUVAH_TAXONOMY.failures.find(f => f.id === id));
+      return { signals, priority, confidence: null, note: parsed.note || null, failures };
     } catch {
       return { found: [], critical: null, note: raw };
     }

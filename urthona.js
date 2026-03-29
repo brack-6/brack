@@ -112,10 +112,10 @@ const URTHONA_ROLE = {
       if (!match) return { found: [], strongest: null, note: raw };
       const parsed = JSON.parse(match[0]);
       const VALID = new Set(URTHONA_TAXONOMY.contradictions.map(c => c.id));
-      const found = (parsed.found || []).filter(id => VALID.has(id)).slice(0, 3);
-      const strongest = VALID.has(parsed.strongest) ? parsed.strongest : (found[0] || null);
-      const contradictions = found.map(id => URTHONA_TAXONOMY.contradictions.find(c => c.id === id));
-      return { found, strongest, note: parsed.note || null, contradictions };
+      const signals = (parsed.found || []).filter(id => VALID.has(id)).slice(0, 3);
+      const priority = VALID.has(parsed.strongest) ? parsed.strongest : (signals[0] || null);
+      const contradictions = signals.map(id => URTHONA_TAXONOMY.contradictions.find(c => c.id === id));
+      return { signals, priority, confidence: null, note: parsed.note || null, contradictions };
     } catch {
       return { found: [], strongest: null, note: raw };
     }

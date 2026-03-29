@@ -115,10 +115,10 @@ const URIZEN_ROLE = {
       const parsed = JSON.parse(match[0]);
       const VALID = new Set(URIZEN_TAXONOMY.assumptions.map(a => a.id));
       // Strip anything that isn't a known taxonomy ID
-      const found = (parsed.found || []).filter(id => VALID.has(id)).slice(0, 3);
-      const strongest = VALID.has(parsed.strongest) ? parsed.strongest : (found[0] || null);
-      const assumptions = found.map(id => URIZEN_TAXONOMY.assumptions.find(a => a.id === id));
-      return { found, strongest, note: parsed.note || null, assumptions };
+      const signals = (parsed.found || []).filter(id => VALID.has(id)).slice(0, 3);
+      const priority = VALID.has(parsed.strongest) ? parsed.strongest : (signals[0] || null);
+      const assumptions = signals.map(id => URIZEN_TAXONOMY.assumptions.find(a => a.id === id));
+      return { signals, priority, confidence: null, note: parsed.note || null, assumptions };
     } catch {
       return { found: [], strongest: null, note: raw };
     }

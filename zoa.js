@@ -101,9 +101,9 @@ const COMBINATIONS = [
 ];
 
 function synthesize(zoas) {
-  const assumptions    = (zoas.urizen?.found    || []);
-  const contradictions = (zoas.urthona?.found   || []);
-  const failures       = (zoas.luvah?.found     || []);
+  const assumptions    = (zoas.urizen?.signals    || []);
+  const contradictions = (zoas.urthona?.signals   || []);
+  const failures       = (zoas.luvah?.signals     || []);
   const confidence     = zoas.tharmas?.confidence ?? null;
 
   const aSet = new Set(assumptions);
@@ -264,7 +264,7 @@ function registerZoa(app) {
         contradiction_count: contradictions.length,
         failure_count:       failures.length,
         confidence_score:    confidence,
-        critical_failure:    zoas.luvah?.critical  || null,
+        critical_failure:    zoas.luvah?.priority  || null,
         weakest_evidence:    zoas.tharmas?.weakest || null,
       },
       synthesis,

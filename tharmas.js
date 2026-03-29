@@ -134,7 +134,7 @@ const THARMAS_ROLE = {
         ? THARMAS_TAXONOMY.dimensions.find(d => d.id === weakest) || null
         : null;
 
-      return { scores, confidence, weakest, note: parsed.note || null, weakest_detail };
+      return { signals: [], priority: weakest, confidence, scores, weakest, note: parsed.note || null, weakest_detail };
     } catch {
       return { scores: {}, confidence: null, weakest: null, note: raw };
     }
