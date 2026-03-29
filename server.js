@@ -1,9 +1,11 @@
+import 'dotenv/config';
 import express from "express";
-//import { paymentMiddleware } from "x402-express";
-//import { facilitator } from "@coinbase/x402";
+import { paymentMiddleware } from "x402-express";
+import { facilitator } from "@coinbase/x402";
 import { agentHealthCheck, malwareCheck, metabolicCheck, outputRiskCheck, promptRiskCheck, toolRiskCheck } from "./swarm.js";
 import { lineageCheck } from "./lineage.js";
 import { entropyScan, outputEntropy } from "./entropy.js";
+import { registerZoa } from "./zoa.js";
 import rateLimit from "express-rate-limit";
 import Database from "better-sqlite3";
 import { createHash } from "crypto";
@@ -62,7 +64,7 @@ function isFreeTier(req) {
   return true;
 }
 
-/*const paymentGate = paymentMiddleware(
+const paymentGate = paymentMiddleware(
   WALLET,
   {
     "/prompt-risk":     { price: "$0.002", network: "base", description: "Prompt injection and jailbreak risk scanner. Detects instruction overrides, role hijacking, system prompt extraction, and indirect injection. Returns risk level, confidence score, matched patterns, and sanitized content." },
@@ -74,27 +76,29 @@ function isFreeTier(req) {
     "/entropy-scan":   { price: "$0.001", network: "base", description: "Shannon entropy scanner for prompts. Detects base64-smuggled payloads, hex blocks, unicode escapes, invisible characters, and compressed/encrypted content. Returns entropy score, anomaly flags, and suspicious spans." },
     "/output-entropy": { price: "$0.001", network: "base", description: "Secret leakage detector for agent outputs. Hybrid regex+entropy analysis catches ETH private keys, JWTs, AWS keys, bearer tokens, and PEM headers. Cross-validates pattern matches against high-entropy spans for confirmed leaks." },
     "/lineage-check":  { price: "$0.003", network: "base", description: "Prompt lineage and contamination tracking for multi-agent pipelines. Detects whether injection patterns from one agent hop survive and propagate to downstream agents. Pass lineage_id between agents for tamper-evident chain-of-custody audit." },
+    "/zoa":           { price: "$0.005", network: "base", description: "Four-faculty reasoning critique. Parallel classifiers detect false assumptions, suppressed contradictions, failure modes, and evidence gaps in agent reasoning. Returns structured diagnosis with synthesis." },
   },
   facilitator
-);*/
+);
 
 app.use((req, res, next) => {
   if (isFreeTier(req)) return next();
-  return next(); // x402 disabled — re-enable when CDP auth fixed
+  return paymentGate(req, res, next);
 });
 
 app.get("/health", (req, res) => res.json({
-  service: "BrackOracle", version: "0.5.0", status: "online", base_url: "https://brack-hive.tail4f568d.ts.net/oracle",
+  service: "BrackOracle", version: "0.5.0", status: "online", base_url: "https://brack-hive.tail4f568d.ts.net",
   endpoints: [
-    { path: "/oracle/prompt-risk",     price: "$0.002", description: "Prompt injection scanner" },
-    { path: "/oracle/malware-check",   price: "$0.001", description: "Malware/URL threat check" },
-    { path: "/oracle/tool-risk",       price: "$0.003", description: "Tool call safety auditor" },
-    { path: "/oracle/output-risk",     price: "$0.002", description: "Output risk scanner" },
-    { path: "/oracle/metabolic-check", price: "$0.001", description: "Context window health" },
-    { path: "/oracle/agent-health",    price: "$0.002", description: "Agent goal alignment check" },
-    { path: "/oracle/lineage-check",   price: "$0.003", description: "Prompt contamination lineage" },
-    { path: "/oracle/entropy-scan",   price: "$0.001", description: "Shannon entropy & encoding anomaly scanner" },
-    { path: "/oracle/output-entropy", price: "$0.001", description: "Secret leakage detector for agent outputs" },
+    { path: "/prompt-risk",     price: "$0.002", description: "Prompt injection scanner" },
+    { path: "/malware-check",   price: "$0.001", description: "Malware/URL threat check" },
+    { path: "/tool-risk",       price: "$0.003", description: "Tool call safety auditor" },
+    { path: "/output-risk",     price: "$0.002", description: "Output risk scanner" },
+    { path: "/metabolic-check", price: "$0.001", description: "Context window health" },
+    { path: "/agent-health",    price: "$0.002", description: "Agent goal alignment check" },
+    { path: "/lineage-check",   price: "$0.003", description: "Prompt contamination lineage" },
+    { path: "/entropy-scan",   price: "$0.001", description: "Shannon entropy & encoding anomaly scanner" },
+    { path: "/output-entropy", price: "$0.001", description: "Secret leakage detector for agent outputs" },
+    { path: "/zoa", price: "$0.005", description: "Four-faculty cognitive blindspot analysis with synthesis" },
   ],
 }));
 
@@ -151,6 +155,7 @@ app.post("/entropy-scan",   (req, res) => entropyScan(req, res));
 app.post("/output-entropy", (req, res) => outputEntropy(req, res));
 app.post("/lineage-check",  (req, res) => lineageCheck(req, res));
 
+registerZoa(app);
 app.listen(PORT, () => {
   console.log(`BrackOracle v0.5 running on port ${PORT}`);
   console.log(`Public: https://brack-hive.tail4f568d.ts.net`);
