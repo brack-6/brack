@@ -219,6 +219,7 @@ The mark accretes weight through time and verified outcomes that cannot be purch
 ## Further reading
 
 **The Guild Mark** — on why this is about guilds, not oracles.
+https://mantecanaut.substack.com/p/the-guild-mark?r=6h1hg
 
 ---
 
