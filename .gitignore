@@ -17,3 +17,11 @@ brack-eval*.js
 brack-optimize*
 tasks/
 attacks/
+*.pem
+*.key
+*.p8
+.env
+*.pem
+*.key
+*.p8
+.env
