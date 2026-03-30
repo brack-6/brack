@@ -7,9 +7,9 @@
 // Urizen   — Reason    — finds false assumptions
 // Urthona  — Imagination — finds suppressed contradictions  
 // Luvah    — Emotion   — finds failure modes you cannot see
-// Tharmas  — Sensation — rates what is actually grounded
+// Tharmas  — Sensation — rates what is actually grounded (code, no model call)
 //
-// Four gemma3:270m calls. Parallel. ~2-3 seconds total.
+// Three gemma3:270m calls + one heuristic scorer. Parallel. 
 // Each classifier has one job. No shared context.
 // The taxonomy is the product.
 // ═══════════════════════════════════════════════════════════════
@@ -23,7 +23,10 @@ const OLLAMA = process.env.OLLAMA_URL      || "http://localhost:11434";
 const ORACLE = process.env.BRACKORACLE_URL || "http://localhost:3100";
 const MODEL  = process.env.OLLAMA_MODEL    || "gemma3:270m";
 const TOKENS = 80;
-const ROLES  = [URIZEN_ROLE, URTHONA_ROLE, LUVAH_ROLE, THARMAS_ROLE];
+
+// Model roles — Tharmas excluded (replaced by heuristic scorer)
+const MODEL_ROLES = [URIZEN_ROLE, URTHONA_ROLE, LUVAH_ROLE];
+const ALL_ROLES   = [URIZEN_ROLE, URTHONA_ROLE, LUVAH_ROLE, THARMAS_ROLE];
 
 // ── Response cleaning ────────────────────────────────────────────
 
@@ -32,6 +35,66 @@ function cleanResponse(raw) {
   let cleaned = raw.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
   return jsonMatch ? jsonMatch[0] : cleaned;
+}
+
+// ── Tharmas heuristic scorer ─────────────────────────────────────
+// Replaces the gemma3:270m call for Tharmas entirely.
+// Pure code. ~0ms. Scores five evidence dimensions from text signals.
+
+const THARMAS_SIGNALS = {
+  empirical: {
+    grounded:   /we tested|measured|observed|data shows|in practice|users reported|results show|benchmark|experiment/i,
+    ungrounded: /users will|naturally|obviously|clearly|of course|everyone knows|will work|should work/i,
+  },
+  causal: {
+    grounded:   /because we|when we changed|caused by|resulted in|we ran|controlled for|we measured/i,
+    ungrounded: /will lead to|leads to|therefore|so this means|this means that|will result in/i,
+  },
+  precedent: {
+    grounded:   /similar to|like when|previously|worked before|proven approach|industry standard|case study/i,
+    ungrounded: /new approach|unprecedented|first of its kind|never been done|unique|novel/i,
+  },
+  scope: {
+    grounded:   /specifically|only applies to|limited to|within|up to|for cases where|constraints/i,
+    ungrounded: /any|all|every|always|never|complete|entire|full|whole|handle anything/i,
+  },
+  reversibility: {
+    grounded:   /we will know|within \d+ (days|hours|weeks)|can monitor|will detect|measurable|rollback/i,
+    ungrounded: /iterate over time|gather feedback|see what happens|adjust as we go|eventually/i,
+  },
+};
+
+function tharmasHeuristic(reasoning) {
+  const scores = {};
+  const text = reasoning || "";
+
+  for (const [dim, patterns] of Object.entries(THARMAS_SIGNALS)) {
+    const hasGrounded   = patterns.grounded.test(text);
+    const hasUngrounded = patterns.ungrounded.test(text);
+    if (hasGrounded && !hasUngrounded)  scores[dim] = 4;
+    else if (hasGrounded && hasUngrounded) scores[dim] = 3;
+    else if (!hasGrounded && !hasUngrounded) scores[dim] = 2;
+    else scores[dim] = 1; // ungrounded signal only
+  }
+
+  const vals = Object.values(scores);
+  const confidence = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+
+  // Find weakest dimension
+  const weakest = Object.entries(scores).sort((a, b) => a[1] - b[1])[0][0];
+
+  return {
+    zoa:      "tharmas",
+    faculty:  "Body / Sensation / Evidence",
+    signals:  [],
+    priority: weakest,
+    confidence,
+    scores,
+    weakest,
+    note:     `Lowest grounding on ${weakest} dimension`,
+    weakest_detail: THARMAS_ROLE.parse ? null : null, // taxonomy detail omitted in heuristic mode
+    heuristic: true, // flag so callers know this was code, not model
+  };
 }
 
 // ── Synthesis ────────────────────────────────────────────────────
@@ -114,21 +177,16 @@ function synthesize(zoas) {
 
   for (const combo of COMBINATIONS) {
     const req = combo.requires || {};
-
-    // Check required conditions
-    const assumptionsMet     = (req.assumptions    || []).every(id => aSet.has(id));
-    const contradictionsMet  = (req.contradictions || []).every(id => cSet.has(id));
-    const failuresMet        = (req.failures       || []).every(id => fSet.has(id));
-
+    const assumptionsMet    = (req.assumptions    || []).every(id => aSet.has(id));
+    const contradictionsMet = (req.contradictions || []).every(id => cSet.has(id));
+    const failuresMet       = (req.failures       || []).every(id => fSet.has(id));
     if (!assumptionsMet || !contradictionsMet || !failuresMet) continue;
 
-    // Check amplifier conditions (optional — increases severity if met)
     let amplified = false;
     if (combo.amplified_by?.confidence_max !== undefined) {
       amplified = confidence !== null && confidence <= combo.amplified_by.confidence_max;
     }
 
-    // Check also_has (optional — at least one must be present)
     let alsoMet = true;
     if (combo.also_has) {
       alsoMet = Object.entries(combo.also_has).some(([type, ids]) => {
@@ -136,7 +194,6 @@ function synthesize(zoas) {
         return ids.some(id => set.has(id));
       });
     }
-
     if (!alsoMet) continue;
 
     matched.push({
@@ -148,19 +205,18 @@ function synthesize(zoas) {
     });
   }
 
-  // Sort by severity
   const order = { critical: 0, high: 1, medium: 2, low: 3 };
   matched.sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
 
   return {
-    combinations:  matched,
-    primary:       matched[0] || null,
-    severity:      matched[0]?.severity || "none",
-    diagnosis:     matched[0]?.diagnosis || null,
+    combinations: matched,
+    primary:      matched[0] || null,
+    severity:     matched[0]?.severity || "none",
+    diagnosis:    matched[0]?.diagnosis || null,
   };
 }
 
-// ── Single micro-call ────────────────────────────────────────────
+// ── Single model micro-call ──────────────────────────────────────
 
 async function callZoa(role, reasoning, prompt, goal) {
   const built = role.buildPrompt(reasoning);
@@ -217,9 +273,36 @@ async function safetyCheck(text) {
   }
 }
 
+// ── Build full response object ───────────────────────────────────
+
+function buildResponse(zoas, start) {
+  const assumptions    = zoas.urizen?.assumptions    || [];
+  const contradictions = zoas.urthona?.contradictions || [];
+  const failures       = zoas.luvah?.failures        || [];
+  const confidence     = zoas.tharmas?.confidence    || null;
+  const synthesis      = synthesize(zoas);
+
+  return {
+    summary: {
+      assumption_count:    assumptions.length,
+      contradiction_count: contradictions.length,
+      failure_count:       failures.length,
+      confidence_score:    confidence,
+      critical_failure:    zoas.luvah?.priority  || null,
+      weakest_evidence:    zoas.tharmas?.weakest || null,
+    },
+    synthesis,
+    zoas,
+    model:      MODEL,
+    latency_ms: Date.now() - start,
+  };
+}
+
 // ── Register routes ──────────────────────────────────────────────
 
 function registerZoa(app) {
+
+  // ── Full response (batch) ───────────────────────────────────────
 
   app.post("/zoa", async (req, res) => {
     const start = Date.now();
@@ -233,53 +316,91 @@ function registerZoa(app) {
     }
 
     const blocked = await safetyCheck(reasoning);
-    if (blocked) {
-      return res.status(403).json({ error: "Request blocked by safety filter" });
-    }
+    if (blocked) return res.status(403).json({ error: "Request blocked by safety filter" });
 
-    // Four Zoas in parallel
+    // Tharmas runs instantly as heuristic
+    const tharmasResult = tharmasHeuristic(reasoning);
+
+    // Urizen, Urthona, Luvah in parallel (3 model calls, not 4)
     const settled = await Promise.allSettled(
-      ROLES.map(role => callZoa(role, reasoning, prompt || "", goal || ""))
+      MODEL_ROLES.map(role => callZoa(role, reasoning, prompt || "", goal || ""))
     );
 
-    const zoas = {};
+    const zoas = { tharmas: tharmasResult };
     for (const result of settled) {
       if (result.status === "fulfilled") {
         zoas[result.value.zoa] = result.value;
       }
     }
 
-    // Surface top signals
-    const assumptions    = zoas.urizen?.assumptions    || [];
-    const contradictions = zoas.urthona?.contradictions || [];
-    const failures       = zoas.luvah?.failures        || [];
-    const confidence     = zoas.tharmas?.confidence    || null;
-
-    // Synthesize — pure logic, no model call
-    const synthesis = synthesize(zoas);
-
-    res.json({
-      summary: {
-        assumption_count:    assumptions.length,
-        contradiction_count: contradictions.length,
-        failure_count:       failures.length,
-        confidence_score:    confidence,
-        critical_failure:    zoas.luvah?.priority  || null,
-        weakest_evidence:    zoas.tharmas?.weakest || null,
-      },
-      synthesis,
-      zoas,
-      model:      MODEL,
-      latency_ms: Date.now() - start,
-    });
+    res.json(buildResponse(zoas, start));
   });
 
-  // ── Individual Zoa routes ────────────────────────────────────────
+  // ── Streaming endpoint (SSE) ────────────────────────────────────
+  // Emits each Zoa result as it completes, then synthesis at the end.
+  // Agents receive partial results within ~3s instead of waiting 12s.
 
-  for (const role of ROLES) {
+  app.post("/zoa/stream", async (req, res) => {
+    const start = Date.now();
+    const { prompt, reasoning, goal } = req.body || {};
+
+    if (!reasoning) {
+      return res.status(400).json({ error: "reasoning is required" });
+    }
+
+    const blocked = await safetyCheck(reasoning);
+    if (blocked) return res.status(403).json({ error: "Request blocked by safety filter" });
+
+    // SSE headers
+    res.writeHead(200, {
+      "Content-Type":  "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection":    "keep-alive",
+    });
+
+    const emit = (event, data) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const zoas = {};
+
+    // Tharmas instant — emit immediately
+    const tharmasResult = tharmasHeuristic(reasoning);
+    zoas.tharmas = tharmasResult;
+    emit("zoa", tharmasResult);
+
+    // Fire three model calls, emit each as it completes
+    const promises = MODEL_ROLES.map(role =>
+      callZoa(role, reasoning, prompt || "", goal || "").then(result => {
+        zoas[result.zoa] = result;
+        emit("zoa", result);
+        return result;
+      })
+    );
+
+    await Promise.allSettled(promises);
+
+    // Final synthesis
+    const full = buildResponse(zoas, start);
+    emit("synthesis", full.synthesis);
+    emit("summary",   full.summary);
+    emit("done",      { latency_ms: full.latency_ms, model: MODEL });
+
+    res.end();
+  });
+
+  // ── Individual Zoa routes (debugging) ───────────────────────────
+
+  for (const role of ALL_ROLES) {
     app.post(`/zoa/${role.key}`, async (req, res) => {
       const { reasoning, prompt, goal } = req.body || {};
       if (!reasoning) return res.status(400).json({ error: "reasoning is required" });
+
+      // Tharmas is now heuristic
+      if (role.key === "tharmas") {
+        return res.json(tharmasHeuristic(reasoning));
+      }
+
       const result = await callZoa(role, reasoning, prompt || "", goal || "");
       res.json(result);
     });
