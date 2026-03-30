@@ -99,6 +99,7 @@ app.get("/health", (req, res) => res.json({
     { path: "/entropy-scan",   price: "$0.001", description: "Shannon entropy & encoding anomaly scanner" },
     { path: "/output-entropy", price: "$0.001", description: "Secret leakage detector for agent outputs" },
     { path: "/zoa", price: "$0.005", description: "Four-faculty cognitive blindspot analysis with synthesis" },
+    { path: "/zoa/stream", price: "$0.005", description: "Streaming SSE — each faculty emits as it completes, synthesis last. Use for latency-sensitive pipelines." },
   ],
 }));
 
