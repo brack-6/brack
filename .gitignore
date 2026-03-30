@@ -3,3 +3,17 @@ oracle.db
 *.bak
 .env
 .env
+*.pem
+*.key
+*.p8
+*.bak*
+*.backup*
+lineage.db
+oracle.db
+patch-*.py
+patch-*.cjs
+patch-*.js
+brack-eval*.js
+brack-optimize*
+tasks/
+attacks/
